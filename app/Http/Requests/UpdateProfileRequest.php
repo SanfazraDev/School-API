@@ -6,8 +6,9 @@ use App\Helpers\ResponseHelper;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Rule;
 
-class RegisterRequest extends FormRequest
+class UpdateProfileRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -25,10 +26,17 @@ class RegisterRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'min:2', 'max:255'],
-            'email' => ['required', 'email', 'unique:users,email', 'max:255'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
-            'password_confirmation' => ['required', 'string', 'min:8'],
+            'name' => ['sometimes', 'required', 'string', 'min:2', 'max:255'],
+            'email' => [
+                'sometimes', 
+                'required', 
+                'email', 
+                'max:255',
+                Rule::unique('users', 'email')->ignore($this->user()->id)
+            ],
+            'current_password' => ['required_with:password', 'string'],
+            'password' => ['sometimes', 'string', 'min:8', 'confirmed'],
+            'password_confirmation' => ['required_with:password', 'string', 'min:8'],
         ];
     }
 
@@ -45,12 +53,12 @@ class RegisterRequest extends FormRequest
             'name.max' => 'Nama maksimal 255 karakter',
             'email.required' => 'Email wajib diisi',
             'email.email' => 'Format email tidak valid',
-            'email.unique' => 'Email sudah terdaftar',
+            'email.unique' => 'Email sudah digunakan',
             'email.max' => 'Email maksimal 255 karakter',
-            'password.required' => 'Password wajib diisi',
-            'password.min' => 'Password minimal 8 karakter',
+            'current_password.required_with' => 'Password saat ini wajib diisi untuk mengubah password',
+            'password.min' => 'Password baru minimal 8 karakter',
             'password.confirmed' => 'Konfirmasi password tidak cocok',
-            'password_confirmation.required' => 'Konfirmasi password wajib diisi',
+            'password_confirmation.required_with' => 'Konfirmasi password wajib diisi',
             'password_confirmation.min' => 'Konfirmasi password minimal 8 karakter',
         ];
     }

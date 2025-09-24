@@ -10,7 +10,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\LoginRequest;
 use Illuminate\Support\Facades\Auth;
 use App\Http\Requests\RegisterRequest;
+use App\Http\Requests\UpdateProfileRequest;
+use App\Http\Resources\UserResource;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
 {
@@ -28,14 +31,9 @@ class AuthController extends Controller
 
             DB::commit();
 
-            $userData = [
-                'user'=> [
-                    'name' => $user->name,
-                    'email' => $user->email,
-                    'created_at' => $user->created_at,
-                    'updated_at' => $user->updated_at,
-                ],
-            ];
+            $token = $user->createToken('auth_token')->plainTextToken;
+
+            $userData = (new UserResource($user))->withToken($token);
 
             return ResponseHelper::success($userData, 'User registered successfully', 201);
 
@@ -66,24 +64,99 @@ class AuthController extends Controller
 
             $token = $user->createToken('auth_token')->plainTextToken;
 
-            $userData = [
-                'user'=> [
-                    'name' => $user->name,
-                    'email' => $user->email,
-                    'created_at' => $user->created_at,
-                    'updated_at' => $user->updated_at,
-                ],
-                'access_token' => $token,
-                'token_type' => 'Bearer',
-            ];
+            $userData = (new UserResource($user))->withToken($token);
 
-            return ResponseHelper::success($userData, 'User logged in successfully', 200);
+            return ResponseHelper::success($userData, 'Login successful', 200);
 
         } catch (\Exception $e) {
             
             Log::error('Login Error: ' . $e->getMessage(), ['stack' => $e->getTraceAsString()]);
             return ResponseHelper::error('Error', 'Login failed', 500);
 
+        }
+    }
+
+    public function logout(Request $request)
+    {
+        try {
+            // Delete current access token
+            $request->user()->currentAccessToken()->delete();
+
+            return ResponseHelper::success(null, 'User logged out successfully', 200);
+
+        } catch (\Exception $e) {
+            Log::error('Logout Error: ' . $e->getMessage(), ['stack' => $e->getTraceAsString()]);
+            return ResponseHelper::error('Error', 'Logout failed', 500);
+        }
+    }
+
+    public function profile(Request $request)
+    {
+        try {
+            $user = $request->user();
+
+            $userData = new UserResource($user);
+
+            return ResponseHelper::success($userData, 'Profile retrieved successfully', 200);
+
+        } catch (\Exception $e) {
+            Log::error('Profile Error: ' . $e->getMessage(), ['stack' => $e->getTraceAsString()]);
+            return ResponseHelper::error('Error', 'Failed to retrieve profile', 500);
+        }
+    }
+
+    public function updateProfile(UpdateProfileRequest $request)
+    {
+        try {
+            $user = $request->user();
+
+            DB::beginTransaction();
+
+            // Update name if provided
+            if ($request->has('name')) {
+                $user->name = $request->name;
+            }
+
+            // Update email if provided
+            if ($request->has('email')) {
+                $user->email = $request->email;
+                // Reset email verification if email changed
+                if ($user->isDirty('email')) {
+                    $user->email_verified_at = null;
+                }
+            }
+
+            // Update password if provided
+            if ($request->has('password')) {
+                // Verify current password
+                if (!Hash::check($request->current_password, $user->password)) {
+                    return ResponseHelper::error('Current password is incorrect', null, 400);
+                }
+                $user->password = Hash::make($request->password);
+                
+                // Revoke all tokens when password is changed
+                $user->tokens()->delete();
+            }
+
+            $user->save();
+
+            DB::commit();
+
+            $userData = new UserResource($user);
+
+            // If password was changed, include new token
+            if ($request->has('password')) {
+                $token = $user->createToken('auth_token')->plainTextToken;
+                $userData = (new UserResource($user))->withToken($token);
+                return ResponseHelper::success($userData, 'Profile updated successfully. Please use the new token.', 200);
+            }
+
+            return ResponseHelper::success($userData, 'Profile updated successfully', 200);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Update Profile Error: ' . $e->getMessage(), ['stack' => $e->getTraceAsString()]);
+            return ResponseHelper::error('Error', 'Failed to update profile', 500);
         }
     }
 }
